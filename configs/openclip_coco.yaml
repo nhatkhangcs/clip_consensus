@@ -1,0 +1,15 @@
+dataset: coco
+split: test5k
+backbone: openclip-vit-b-32
+backend: open_clip
+model_name: ViT-B-32
+pretrained: laion2b_s34b_b79k
+batch_size:
+  images: 64
+  texts: 256
+weights:
+  alpha: 1.0
+  beta: 1.8
+  gamma: 3.0
+leave_one_out: true
+

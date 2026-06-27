@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+data/*
+!data/.gitkeep
+outputs/embeddings/*
+!outputs/embeddings/.gitkeep
+outputs/results/*
+!outputs/results/.gitkeep
+

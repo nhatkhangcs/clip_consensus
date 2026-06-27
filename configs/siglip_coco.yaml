@@ -1,0 +1,14 @@
+dataset: coco
+split: test5k
+backbone: siglip-base-patch16-224
+backend: transformers
+model_id: google/siglip-base-patch16-224
+batch_size:
+  images: 64
+  texts: 256
+weights:
+  alpha: 1.0
+  beta: 0.4
+  gamma: 1.8
+leave_one_out: true
+

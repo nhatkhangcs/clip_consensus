@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caption-geometry"
+version = "0.1.0"
+description = "Training-free consensus-residual scoring for frozen image-text retrieval."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.23",
+  "pillow>=9.0",
+  "scipy>=1.10",
+  "torch>=2.0",
+  "tqdm>=4.64",
+]
+
+[project.optional-dependencies]
+encoders = [
+  "open_clip_torch>=2.24",
+  "transformers>=4.40",
+]
+datasets = [
+  "datasets>=2.18",
+  "pandas>=1.5",
+  "scikit-learn>=1.2",
+]
+dev = [
+  "pytest>=7.4",
+]
+
+[project.scripts]
+caption-geometry-encode-images = "caption_geometry.scripts.encode_images:main"
+caption-geometry-encode-captions = "caption_geometry.scripts.encode_captions:main"
+caption-geometry-eval-retrieval = "caption_geometry.scripts.eval_retrieval:main"
+caption-geometry-tune-weights = "caption_geometry.scripts.tune_weights:main"
+caption-geometry-eval-compositional = "caption_geometry.scripts.eval_compositional:main"
+caption-geometry-diagnostics-entities = "caption_geometry.scripts.diagnostics_entities:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
