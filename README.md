@@ -1,4 +1,4 @@
-# Caption Geometry
+# The Geometry of What Captions Share and Omit
 
 Training-free consensus-residual scoring for frozen CLIP-style image-text retrieval.
 
