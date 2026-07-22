@@ -82,6 +82,57 @@ python -m caption_geometry.scripts.eval_retrieval \
   --output outputs/results/coco_test5k_siglip_ablations.json
 ```
 
+## Reviewer-Facing Experiments
+
+Support-caption baselines:
+
+```bash
+conda run -n vlm env PYTHONPATH=src python -m caption_geometry.scripts.eval_support_baselines \
+  --image-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_images.pt \
+  --caption-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_captions.pt \
+  --lambda-weight 0.4 \
+  --gamma 1.8 \
+  --leave-one-out \
+  --query-batch-size 1024 \
+  --bootstrap-samples 1000 \
+  --output outputs/results/coco_test5k_siglip_support_baselines.json \
+  --markdown-output outputs/results/coco_test5k_siglip_support_baselines.md
+```
+
+Support-caption mismatch robustness:
+
+```bash
+conda run -n vlm env PYTHONPATH=src python -m caption_geometry.scripts.eval_mismatch_robustness \
+  --image-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_images.pt \
+  --caption-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_captions.pt \
+  --variant full \
+  --alpha 1.0 \
+  --beta 0.4 \
+  --gamma 1.8 \
+  --mismatch-rates 0 0.2 0.4 0.6 \
+  --seeds 0 1 2 3 4 \
+  --leave-one-out \
+  --query-batch-size 1024 \
+  --output outputs/results/coco_test5k_siglip_mismatch.json \
+  --markdown-output outputs/results/coco_test5k_siglip_mismatch.md
+```
+
+Flickr30K Entities diagnostic:
+
+```bash
+conda run -n vlm env PYTHONPATH=src python -m caption_geometry.scripts.prepare_flickr30k_entities \
+  --caption-emb outputs/embeddings/flickr30k_test1k_siglip-base-patch16-224_captions.pt \
+  --sentences-dir data/flickr30k_entities/repo/Sentences \
+  --output outputs/results/flickr30k_entities_ratios.jsonl
+
+conda run -n vlm env PYTHONPATH=src python -m caption_geometry.scripts.diagnostics_entities \
+  --image-emb outputs/embeddings/flickr30k_test1k_siglip-base-patch16-224_images.pt \
+  --caption-emb outputs/embeddings/flickr30k_test1k_siglip-base-patch16-224_captions.pt \
+  --entity-ratios-jsonl outputs/results/flickr30k_entities_ratios.jsonl \
+  --output outputs/results/flickr30k_entities_diagnostics.json \
+  --markdown-output outputs/results/flickr30k_entities_diagnostics.md
+```
+
 Sweep a sampled caption count:
 
 ```bash

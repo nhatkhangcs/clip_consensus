@@ -60,19 +60,19 @@ class TransformersDualEncoder(DualEncoder):
     def encode_images(self, pil_images: Sequence[Any]) -> torch.Tensor:
         inputs = self.processor(images=list(pil_images), return_tensors="pt")
         inputs = _move_to_device(inputs, self.device)
-        features = self.model.get_image_features(**inputs)
+        features = _as_feature_tensor(self.model.get_image_features(**inputs))
         return normalize(features.float()).cpu()
 
     @torch.inference_mode()
     def encode_texts(self, texts: Sequence[str]) -> torch.Tensor:
         inputs = self.processor(
             text=list(texts),
-            padding=True,
+            padding="max_length",
             truncation=True,
             return_tensors="pt",
         )
         inputs = _move_to_device(inputs, self.device)
-        features = self.model.get_text_features(**inputs)
+        features = _as_feature_tensor(self.model.get_text_features(**inputs))
         return normalize(features.float()).cpu()
 
 
@@ -145,6 +145,22 @@ def _move_to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dic
     return {key: value.to(device) for key, value in batch.items()}
 
 
+def _as_feature_tensor(output: Any) -> torch.Tensor:
+    if torch.is_tensor(output):
+        return output
+
+    for field_name in ("pooler_output", "text_embeds", "image_embeds"):
+        value = getattr(output, field_name, None)
+
+        if torch.is_tensor(value):
+            return value
+
+    if isinstance(output, (tuple, list)) and output and torch.is_tensor(output[0]):
+        return output[0]
+
+    raise TypeError(f"Could not extract feature tensor from {type(output).__name__}")
+
+
 def _preset_value(preset: EncoderPreset | None, field_name: str) -> str:
     if preset is None:
         raise ValueError(
@@ -157,4 +173,3 @@ def _preset_value(preset: EncoderPreset | None, field_name: str) -> str:
         raise ValueError(f"Backbone preset does not define {field_name}.")
 
     return value
-

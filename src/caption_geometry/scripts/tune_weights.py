@@ -6,12 +6,12 @@ from itertools import product
 from tqdm import tqdm
 
 from caption_geometry.io import write_json
-from caption_geometry.scoring.consensus_residual import score_matrix_no_loo, score_matrix_with_loo
 from caption_geometry.scoring.metrics import retrieval_metrics
+from caption_geometry.scoring.retrieval_scores import score_retrieval_variant
 from caption_geometry.scripts.common import (
     load_embedding_pair,
     resolve_compute_device,
-    sample_caption_subset,
+    sample_support_captions,
 )
 
 DEFAULT_BETAS = (0.0, 0.1, 0.2, 0.4, 0.8, 1.0, 1.4, 1.8, 2.2, 2.6, 3.0)
@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     device = resolve_compute_device(args.device)
-    images, captions, metadata = load_embedding_pair(
+    images, query_captions, metadata = load_embedding_pair(
         image_path=args.image_emb,
         caption_path=args.caption_emb,
         dataset=args.dataset,
@@ -48,20 +48,27 @@ def main(argv: list[str] | None = None) -> None:
         backbone=args.backbone,
         device=device,
     )
-    captions = sample_caption_subset(captions, args.support_count, args.seed)
-    scorer = score_matrix_with_loo if args.leave_one_out else score_matrix_no_loo
+    support_captions, support_source_indices = sample_support_captions(
+        query_captions,
+        args.support_count,
+        args.seed,
+    )
     rows = []
 
     for beta, gamma in tqdm(list(product(args.betas, args.gammas)), desc="Tuning weights"):
-        scores = scorer(
+        scores = score_retrieval_variant(
+            variant="full",
             images=images,
-            captions=captions,
+            query_captions=query_captions,
+            support_captions=support_captions,
+            support_source_indices=support_source_indices,
             alpha=args.alpha,
             beta=beta,
             gamma=gamma,
+            leave_one_out=args.leave_one_out,
             query_batch_size=args.query_batch_size,
         )
-        metrics = retrieval_metrics(scores, k_captions=captions.shape[1])
+        metrics = retrieval_metrics(scores, k_captions=query_captions.shape[1])
         objective = metrics["i2t"]["R@1"] + metrics["t2i"]["R@1"]
         rows.append(
             {
@@ -77,7 +84,7 @@ def main(argv: list[str] | None = None) -> None:
     payload = {
         "metric": "i2t_R@1_plus_t2i_R@1",
         "leave_one_out": args.leave_one_out,
-        "support_count": captions.shape[1],
+        "support_count": support_captions.shape[1],
         "seed": args.seed,
         "best": best,
         "grid": rows,

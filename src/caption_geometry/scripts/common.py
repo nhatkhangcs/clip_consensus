@@ -10,6 +10,7 @@ from PIL import Image
 from caption_geometry.datasets.records import ImageRecord
 from caption_geometry.io import default_embedding_path, load_embedding_bundle
 from caption_geometry.scoring.consensus_residual import normalize
+from caption_geometry.scoring.retrieval_scores import default_support_source_indices
 
 T = TypeVar("T")
 
@@ -94,8 +95,17 @@ def sample_caption_subset(
     support_count: int | None,
     seed: int,
 ) -> torch.Tensor:
+    support_captions, _ = sample_support_captions(captions, support_count, seed)
+    return support_captions
+
+
+def sample_support_captions(
+    captions: torch.Tensor,
+    support_count: int | None,
+    seed: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
     if support_count is None:
-        return captions
+        return captions, default_support_source_indices(captions)
 
     n_images, k_captions, dim = captions.shape
 
@@ -107,4 +117,46 @@ def sample_caption_subset(
         [torch.randperm(k_captions, generator=generator)[:support_count] for _ in range(n_images)]
     ).to(captions.device)
     gather_index = indices[:, :, None].expand(n_images, support_count, dim)
-    return captions.gather(dim=1, index=gather_index)
+    return captions.gather(dim=1, index=gather_index), indices
+
+
+def corrupt_support_captions(
+    support_captions: torch.Tensor,
+    support_source_indices: torch.Tensor,
+    caption_pool: torch.Tensor,
+    mismatch_rate: float,
+    seed: int,
+) -> tuple[torch.Tensor, torch.Tensor, int]:
+    if not 0.0 <= mismatch_rate <= 1.0:
+        raise ValueError("--mismatch-rate must be between 0 and 1")
+
+    n_images, support_count, _ = support_captions.shape
+    pool_images, pool_captions, _ = caption_pool.shape
+    total_slots = n_images * support_count
+    replace_count = round(total_slots * mismatch_rate)
+
+    if replace_count == 0:
+        return support_captions, support_source_indices, 0
+
+    if pool_images < 2:
+        raise ValueError("At least two images are required to create mismatched support captions")
+
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    flat_slots = torch.randperm(total_slots, generator=generator)[:replace_count]
+    target_images = flat_slots // support_count
+    target_slots = flat_slots % support_count
+    replacement_images = torch.randint(pool_images - 1, (replace_count,), generator=generator)
+    replacement_images += (replacement_images >= target_images).long()
+    replacement_captions = torch.randint(pool_captions, (replace_count,), generator=generator)
+
+    device = support_captions.device
+    target_images = target_images.to(device)
+    target_slots = target_slots.to(device)
+    replacement_images = replacement_images.to(device)
+    replacement_captions = replacement_captions.to(device)
+
+    corrupted = support_captions.clone()
+    corrupted_sources = support_source_indices.clone().to(device=device, dtype=torch.long)
+    corrupted[target_images, target_slots] = caption_pool[replacement_images, replacement_captions]
+    corrupted_sources[target_images, target_slots] = -1
+    return corrupted, corrupted_sources, replace_count
