@@ -17,12 +17,27 @@ class EncoderPreset:
     model_id: str | None = None
     model_name: str | None = None
     pretrained: str | None = None
+    text_max_length: int | None = None
 
 
 BACKBONE_PRESETS: dict[str, EncoderPreset] = {
     "siglip-base-patch16-224": EncoderPreset(
         backend="transformers",
         model_id="google/siglip-base-patch16-224",
+    ),
+    "siglip2-base-patch16-224": EncoderPreset(
+        backend="transformers",
+        model_id="google/siglip2-base-patch16-224",
+        text_max_length=64,
+    ),
+    "siglip2-so400m-patch14-384": EncoderPreset(
+        backend="transformers",
+        model_id="google/siglip2-so400m-patch14-384",
+        text_max_length=64,
+    ),
+    "clip-vit-large-patch14": EncoderPreset(
+        backend="transformers",
+        model_id="openai/clip-vit-large-patch14",
     ),
     "openclip-vit-b-32": EncoderPreset(
         backend="open_clip",
@@ -49,10 +64,12 @@ class TransformersDualEncoder(DualEncoder):
         self,
         model_id: str,
         device: str | torch.device = "auto",
+        text_max_length: int | None = None,
     ) -> None:
         from transformers import AutoModel, AutoProcessor
 
         self.device = resolve_device(device)
+        self.text_max_length = text_max_length
         self.processor = AutoProcessor.from_pretrained(model_id)
         self.model = AutoModel.from_pretrained(model_id).to(self.device).eval()
 
@@ -69,6 +86,7 @@ class TransformersDualEncoder(DualEncoder):
             text=list(texts),
             padding="max_length",
             truncation=True,
+            max_length=self.text_max_length,
             return_tensors="pt",
         )
         inputs = _move_to_device(inputs, self.device)
@@ -120,7 +138,12 @@ def build_encoder(
 
     if resolved_backend == "transformers":
         resolved_model_id = model_id or _preset_value(preset, "model_id")
-        return TransformersDualEncoder(model_id=resolved_model_id, device=device)
+        text_max_length = preset.text_max_length if preset is not None else None
+        return TransformersDualEncoder(
+            model_id=resolved_model_id,
+            device=device,
+            text_max_length=text_max_length,
+        )
 
     if resolved_backend == "open_clip":
         resolved_model_name = model_name or _preset_value(preset, "model_name")
