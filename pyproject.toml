@@ -36,6 +36,7 @@ caption-geometry-encode-captions = "caption_geometry.scripts.encode_captions:mai
 caption-geometry-eval-retrieval = "caption_geometry.scripts.eval_retrieval:main"
 caption-geometry-tune-weights = "caption_geometry.scripts.tune_weights:main"
 caption-geometry-eval-support-baselines = "caption_geometry.scripts.eval_support_baselines:main"
+caption-geometry-eval-fixed-support = "caption_geometry.scripts.eval_fixed_support:main"
 caption-geometry-eval-mismatch-robustness = "caption_geometry.scripts.eval_mismatch_robustness:main"
 caption-geometry-eval-compositional = "caption_geometry.scripts.eval_compositional:main"
 caption-geometry-diagnostics-entities = "caption_geometry.scripts.diagnostics_entities:main"

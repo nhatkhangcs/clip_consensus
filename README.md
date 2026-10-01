@@ -82,6 +82,43 @@ python -m caption_geometry.scripts.eval_retrieval \
   --output outputs/results/coco_test5k_siglip_ablations.json
 ```
 
+## Support-Independent Protocol (resubmission)
+
+`--protocol fixed` holds one caption per image out as the query and gives every candidate the
+same remaining K-1 supports, rotated over all K folds. No candidate's support depends on the
+query. `--protocol loo` is the original setup, where the positive drops the query from its
+supports and negatives keep all K. COCO `--image-range 0 2500` is tune2500 and
+`--image-range 2500 5000` is eval2500, both sliced from test5k.
+
+Tune every variant with the same objective (I2T@1 + T2I@1). The output flags optima on the grid edge:
+
+```bash
+conda run -n vlm env PYTHONPATH=src python -m caption_geometry.scripts.tune_weights \
+  --image-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_images.pt \
+  --caption-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_captions.pt \
+  --image-range 0 2500 --protocol fixed --query-batch-size 4096 \
+  --output outputs/results/v2/tune_coco2500_siglip_fixed.json
+```
+
+Evaluate with per-variant tuned weights and image-clustered bootstrap CIs. Use `--reference`
+to set the variant that the paired gains are measured against:
+
+```bash
+conda run -n vlm env PYTHONPATH=src python -m caption_geometry.scripts.eval_fixed_support \
+  --image-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_images.pt \
+  --caption-emb outputs/embeddings/coco_test5k_siglip-base-patch16-224_captions.pt \
+  --image-range 2500 5000 --protocol fixed \
+  --weights-json outputs/results/v2/tune_coco2500_siglip_fixed.json \
+  --reference base_consensus --query-batch-size 4096 \
+  --output outputs/results/v2/coco_eval2500_siglip_fixed.json \
+  --markdown-output outputs/results/v2/coco_eval2500_siglip_fixed.md
+```
+
+`eval_mismatch_robustness` also takes `--protocol`. Under `fixed`, replacement captions come
+from other images' supports, which never contain a query. Under `loo`, pass
+`--replacement-pool-emb` (for example, COCO train captions). The default `loo` pool is the query set, so a
+query can land in a negative candidate's support.
+
 ## Reviewer-Facing Experiments
 
 Support-caption baselines:

@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import argparse
-import json
+from pathlib import Path
 from statistics import mean, pstdev
 
-from caption_geometry.io import write_json
-from caption_geometry.scoring.metrics import retrieval_metrics
-from caption_geometry.scoring.retrieval_scores import VARIANT_LABELS, score_retrieval_variant
+import torch
+
+from caption_geometry.io import load_embedding_bundle, write_json
+from caption_geometry.scoring.consensus_residual import normalize
+from caption_geometry.scoring.retrieval_scores import VARIANT_LABELS
 from caption_geometry.scripts.common import (
     corrupt_support_captions,
     load_embedding_pair,
     resolve_compute_device,
     sample_support_captions,
+)
+from caption_geometry.scripts.protocols import (
+    PROTOCOLS,
+    ProtocolSplit,
+    average_metrics,
+    evaluate_protocol,
+    protocol_splits,
+    slice_images,
 )
 from caption_geometry.scripts.table_utils import format_metric, markdown_table
 
@@ -23,6 +33,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset")
     parser.add_argument("--split")
     parser.add_argument("--backbone")
+    parser.add_argument("--image-range", type=int, nargs=2, metavar=("START", "END"))
+    parser.add_argument("--protocol", choices=PROTOCOLS, default="fixed")
+    parser.add_argument(
+        "--replacement-pool-emb",
+        help=(
+            "Caption embeddings to draw mismatched supports from (e.g. COCO train). Default: "
+            "fixed protocol uses the other images' supports, which never contain a query; "
+            "loo uses the evaluated captions themselves, so a query can land in a negative's support."
+        ),
+    )
     parser.add_argument("--variant", default="full")
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--beta", type=float, default=0.4)
@@ -30,8 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mismatch-rates", type=float, nargs="+", default=(0.0, 0.2, 0.4, 0.6))
     parser.add_argument("--seeds", type=int, nargs="+", default=(0,))
     parser.add_argument("--support-seed", type=int, default=0)
-    parser.add_argument("--support-count", type=int)
-    parser.add_argument("--leave-one-out", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--support-count", type=int, help="loo protocol only.")
     parser.add_argument("--query-batch-size", type=int)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output", required=True)
@@ -42,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     device = resolve_compute_device(args.device)
-    images, query_captions, metadata = load_embedding_pair(
+    images, captions, metadata = load_embedding_pair(
         image_path=args.image_emb,
         caption_path=args.caption_emb,
         dataset=args.dataset,
@@ -50,35 +69,29 @@ def main(argv: list[str] | None = None) -> None:
         backbone=args.backbone,
         device=device,
     )
-    support_captions, support_source_indices = sample_support_captions(
-        query_captions,
-        args.support_count,
-        args.support_seed,
-    )
+    images, captions = slice_images(images, captions, args.image_range)
+    external_pool = load_pool(args.replacement_pool_emb, device)
+
+    if args.protocol == "fixed" and args.support_count is not None:
+        raise ValueError("--support-count applies to the loo protocol only")
+
+    if args.protocol == "loo" and external_pool is None:
+        print("warning: loo protocol without --replacement-pool-emb draws replacements from the query set")
+
+    clean_splits = base_splits(captions, args)
     rows = [
-        evaluate_rate(
-            rate=rate,
-            seeds=args.seeds,
-            images=images,
-            query_captions=query_captions,
-            support_captions=support_captions,
-            support_source_indices=support_source_indices,
-            alpha=args.alpha,
-            beta=args.beta,
-            gamma=args.gamma,
-            variant=args.variant,
-            leave_one_out=args.leave_one_out,
-            query_batch_size=args.query_batch_size,
-        )
+        evaluate_rate(rate, clean_splits, images, external_pool, args)
         for rate in args.mismatch_rates
     ]
     table = mismatch_table(rows)
     payload = {
+        "protocol": args.protocol,
+        "image_range": args.image_range,
+        "replacement_pool": args.replacement_pool_emb or ("other_supports" if args.protocol == "fixed" else "queries"),
         "variant": args.variant,
         "variant_label": VARIANT_LABELS.get(args.variant, args.variant),
         "weights": {"alpha": args.alpha, "beta": args.beta, "gamma": args.gamma},
-        "leave_one_out": args.leave_one_out,
-        "support_count": support_captions.shape[1],
+        "support_count": clean_splits[0].support_captions.shape[1],
         "support_seed": args.support_seed,
         "seeds": list(args.seeds),
         "metadata": metadata,
@@ -90,37 +103,51 @@ def main(argv: list[str] | None = None) -> None:
     print(table)
 
 
-def evaluate_rate(
-    rate: float,
-    seeds: list[int],
-    images,
-    query_captions,
-    support_captions,
-    support_source_indices,
-    alpha: float,
-    beta: float,
-    gamma: float,
-    variant: str,
-    leave_one_out: bool,
-    query_batch_size: int | None,
-) -> dict[str, object]:
-    seed_rows = [
-        evaluate_seed(
-            rate=rate,
-            seed=seed,
-            images=images,
-            query_captions=query_captions,
-            support_captions=support_captions,
-            support_source_indices=support_source_indices,
-            alpha=alpha,
-            beta=beta,
-            gamma=gamma,
-            variant=variant,
-            leave_one_out=leave_one_out,
-            query_batch_size=query_batch_size,
-        )
-        for seed in seeds
-    ]
+def load_pool(path: str | None, device):
+    if not path:
+        return None
+
+    return normalize(load_embedding_bundle(path, map_location=device).embeddings.float())
+
+
+def base_splits(captions, args: argparse.Namespace) -> list[ProtocolSplit]:
+    if args.protocol == "fixed":
+        return list(protocol_splits(captions, "fixed"))
+
+    support, sources = sample_support_captions(captions, args.support_count, args.support_seed)
+    return list(protocol_splits(captions, "loo", support, sources))
+
+
+def corrupt_split(split: ProtocolSplit, rate: float, seed: int, external_pool) -> tuple[ProtocolSplit, int]:
+    if external_pool is not None:
+        pool, exclude_same_image = external_pool, False
+    elif split.leave_one_out:
+        pool, exclude_same_image = split.query_captions, True
+    else:
+        pool, exclude_same_image = split.support_captions, True
+
+    sources = split.support_source_indices
+
+    if sources is None:
+        sources = split.support_captions.new_zeros(split.support_captions.shape[:2], dtype=torch.long)
+
+    corrupted, corrupted_sources, replaced = corrupt_support_captions(
+        support_captions=split.support_captions,
+        support_source_indices=sources,
+        caption_pool=pool,
+        mismatch_rate=rate,
+        seed=seed,
+        exclude_same_image=exclude_same_image,
+    )
+    resolved_sources = corrupted_sources if split.leave_one_out else None
+    return (
+        ProtocolSplit(split.query_captions, corrupted, resolved_sources, split.leave_one_out),
+        replaced,
+    )
+
+
+def evaluate_rate(rate: float, clean_splits, images, external_pool, args) -> dict[str, object]:
+    seed_rows = [evaluate_seed(rate, seed, clean_splits, images, external_pool, args) for seed in args.seeds]
     return {
         "mismatch_rate": rate,
         "mean": summarize(seed_rows),
@@ -128,44 +155,31 @@ def evaluate_rate(
     }
 
 
-def evaluate_seed(
-    rate: float,
-    seed: int,
-    images,
-    query_captions,
-    support_captions,
-    support_source_indices,
-    alpha: float,
-    beta: float,
-    gamma: float,
-    variant: str,
-    leave_one_out: bool,
-    query_batch_size: int | None,
-) -> dict[str, object]:
-    corrupted_support, corrupted_sources, replaced = corrupt_support_captions(
-        support_captions=support_captions,
-        support_source_indices=support_source_indices,
-        caption_pool=query_captions,
-        mismatch_rate=rate,
-        seed=seed,
-    )
-    scores = score_retrieval_variant(
-        variant=variant,
-        images=images,
-        query_captions=query_captions,
-        support_captions=corrupted_support,
-        support_source_indices=corrupted_sources,
-        alpha=alpha,
-        beta=beta,
-        gamma=gamma,
-        leave_one_out=leave_one_out,
-        query_batch_size=query_batch_size,
-    )
-    metrics = retrieval_metrics(scores, k_captions=query_captions.shape[1])
+def evaluate_seed(rate: float, seed: int, clean_splits, images, external_pool, args) -> dict[str, object]:
+    metric_rows = []
+    replaced_total = 0
+
+    # Fold 0 keeps `seed` (matches earlier loo runs); later folds get independent draws.
+    for fold, split in enumerate(clean_splits):
+        corrupted, replaced = corrupt_split(split, rate, seed + 1000 * fold, external_pool)
+        replaced_total += replaced
+        result = evaluate_protocol(
+            variant=args.variant,
+            images=images,
+            captions=split.query_captions,
+            protocol=args.protocol,
+            alpha=args.alpha,
+            beta=args.beta,
+            gamma=args.gamma,
+            query_batch_size=args.query_batch_size,
+            splits=[corrupted],
+        )
+        metric_rows.append(result.metrics)
+
     return {
         "seed": seed,
-        "replaced_support_captions": replaced,
-        "metrics": metrics,
+        "replaced_support_captions": replaced_total,
+        "metrics": average_metrics(metric_rows),
     }
 
 
@@ -220,8 +234,6 @@ def format_delta(value: float) -> str:
 def write_markdown(path: str | None, table: str) -> None:
     if not path:
         return
-
-    from pathlib import Path
 
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)

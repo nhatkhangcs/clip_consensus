@@ -126,7 +126,14 @@ def corrupt_support_captions(
     caption_pool: torch.Tensor,
     mismatch_rate: float,
     seed: int,
+    exclude_same_image: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, int]:
+    """Replace a fraction of support slots with captions drawn from `caption_pool`.
+
+    `exclude_same_image` assumes pool row i is image i (pool = the evaluated set) and
+    never draws a replacement from the target image; disable it for an external pool.
+    """
+
     if not 0.0 <= mismatch_rate <= 1.0:
         raise ValueError("--mismatch-rate must be between 0 and 1")
 
@@ -138,15 +145,20 @@ def corrupt_support_captions(
     if replace_count == 0:
         return support_captions, support_source_indices, 0
 
-    if pool_images < 2:
+    if exclude_same_image and pool_images < 2:
         raise ValueError("At least two images are required to create mismatched support captions")
 
     generator = torch.Generator(device="cpu").manual_seed(seed)
     flat_slots = torch.randperm(total_slots, generator=generator)[:replace_count]
     target_images = flat_slots // support_count
     target_slots = flat_slots % support_count
-    replacement_images = torch.randint(pool_images - 1, (replace_count,), generator=generator)
-    replacement_images += (replacement_images >= target_images).long()
+
+    if exclude_same_image:
+        replacement_images = torch.randint(pool_images - 1, (replace_count,), generator=generator)
+        replacement_images += (replacement_images >= target_images).long()
+    else:
+        replacement_images = torch.randint(pool_images, (replace_count,), generator=generator)
+
     replacement_captions = torch.randint(pool_captions, (replace_count,), generator=generator)
 
     device = support_captions.device
