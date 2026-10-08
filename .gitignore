@@ -11,3 +11,4 @@ outputs/embeddings/*
 outputs/results/*
 !outputs/results/.gitkeep
 
+outputs/figure_example

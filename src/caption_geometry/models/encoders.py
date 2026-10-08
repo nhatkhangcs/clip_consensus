@@ -44,6 +44,26 @@ BACKBONE_PRESETS: dict[str, EncoderPreset] = {
         model_name="ViT-B-32",
         pretrained="laion2b_s34b_b79k",
     ),
+    "metaclip-vit-b-16": EncoderPreset(
+        backend="open_clip",
+        model_name="ViT-B-16-quickgelu",
+        pretrained="metaclip_fullcc",
+    ),
+    "dfn-vit-b-16": EncoderPreset(
+        backend="open_clip",
+        model_name="ViT-B-16-quickgelu",
+        pretrained="dfn2b",
+    ),
+    "datacomp-vit-b-32": EncoderPreset(
+        backend="open_clip",
+        model_name="ViT-B-32",
+        pretrained="datacomp_xl_s13b_b90k",
+    ),
+    "eva02-vit-b-16": EncoderPreset(
+        backend="open_clip",
+        model_name="EVA02-B-16",
+        pretrained="merged2b_s8b_b131k",
+    ),
 }
 
 
