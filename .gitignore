@@ -12,3 +12,6 @@ outputs/results/*
 !outputs/results/.gitkeep
 
 outputs/figure_example
+outputs/figure_qualitative
+
+tests/
