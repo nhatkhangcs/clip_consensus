@@ -8,7 +8,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 Correspondence: [Khang.Vo@mbzuai.ac.ae](mailto:Khang.Vo@mbzuai.ac.ae), [Venkata.Penamakuri@mbzuai.ac.ae](mailto:Venkata.Penamakuri@mbzuai.ac.ae)
 
-📄 Paper (coming soon) · [Quick start](#quick-start) · [Reproducing the paper](#reproducing-the-paper)
+[📄 Paper (arXiv:2610.33798)](https://arxiv.org/abs/2610.33798) · [Quick start](#quick-start) · [Reproducing the paper](#reproducing-the-paper)
 
 </div>
 
@@ -380,7 +380,18 @@ Each script documents its setting, grid and command line in its header docstring
 
 ## Citation
 
-(Coming soon)
+If you find this work useful, please cite:
+
+```bibtex
+@article{vo2026whispers,
+  title   = {Whispers from the Neighbors: Rethinking Caption Consensus as
+             Inference-Time Evidence for Vision-Language Retrieval},
+  author  = {Vo, Khang Nhat Hoang and Shoer, Belal and Penamakuri, Abhirama Subramanyam},
+  journal = {arXiv preprint arXiv:2610.33798},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2610.33798}
+}
+```
 
 ## Acknowledgements
 
